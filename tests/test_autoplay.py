@@ -61,6 +61,24 @@ class Player:
         return self.playing
 
 
+class StorageStat:
+    free = 0
+    total = 0
+    error = None
+    paths = ()
+
+    def __init__(self, path):
+        StorageStat.paths += (path,)
+        if StorageStat.error is not None:
+            raise StorageStat.error
+
+    def getAvailableBytes(self):
+        return StorageStat.free
+
+    def getTotalBytes(self):
+        return StorageStat.total
+
+
 def row(message_id, video=True, channel=123, streamable=True, *, chat=0, user=0, incoming=False, topic=0):
     peer = NS(channel_id=0 if chat or user else channel, chat_id=chat,
               user_id=(1 if incoming else user) if user else 0)
@@ -117,12 +135,15 @@ class RepliesRequest(NS):
 
 
 sdk_modules = {
+    "android.os": module(Environment=Mock(), StatFs=StorageStat),
+    "android.text.format": module(Formatter=NS(formatFileSize=Mock())),
     "android_utils": module(run_on_ui_thread=Mock(), copy_to_clipboard=Mock()),
     "base_plugin": module(BasePlugin=BasePlugin, MethodHook=object),
     "client_utils": module(send_request=Mock()),
     "hook_utils": module(get_private_field=getattr),
     "java.lang": module(Boolean=JavaBoolean, Integer=JavaInteger),
     "org.telegram.messenger": module(
+        ApplicationLoader=NS(applicationContext=object()),
         FileLoader=Mock(PRIORITY_NORMAL=1), MediaDataController=NS(MEDIA_PHOTOVIDEO=0),
         DialogObject=NS(isEncryptedDialog=lambda dialog: dialog > 0 and bool(dialog & (1 << 62))),
         MessageObject=Message, MessagesController=Mock(), UserConfig=NS(selectedAccount=1),
@@ -160,6 +181,18 @@ class AutoplayTests(unittest.TestCase):
         self.api.FileLoader.reset_mock()
         self.connections = sdk_modules["org.telegram.tgnet"].ConnectionsManager
         self.connections.reset_mock()
+        self.storage = sdk_modules["android.os"].StatFs
+        self.storage.free = 0
+        self.storage.total = 0
+        self.storage.error = None
+        self.storage.paths = ()
+        self.environment = sdk_modules["android.os"].Environment
+        self.environment.reset_mock()
+        self.environment.getDataDirectory.return_value.getPath.return_value = "/data"
+        self.formatter = sdk_modules["android.text.format"].Formatter
+        self.formatter.formatFileSize.reset_mock()
+        self.formatter.formatFileSize.side_effect = lambda context, size: f"{size} bytes"
+        self.context = sdk_modules["org.telegram.messenger"].ApplicationLoader.applicationContext
         self.viewer_class = Mock(spec=["getDeclaredField", "getDeclaredMethod"])
         self.viewer_class.getDeclaredField.side_effect = lambda name: NS(
             setAccessible=Mock(),
@@ -209,6 +242,9 @@ class AutoplayTests(unittest.TestCase):
     def begin(self):
         self.plugin._ended(self.viewer)
         self.run_queued(1)
+
+    def setting(self, text):
+        return next(row for row in self.plugin.create_settings() if row["text"] == text)
 
     def reply(self, rows=(), error=None, callback=-1):
         self.callbacks[callback](NS(messages=JavaResponseList(rows)), error)
@@ -424,13 +460,36 @@ class AutoplayTests(unittest.TestCase):
         self.assertEqual(self.plugin._diagnostics[0], "entry 1")
         handler(NS(text="Traceback:\nRuntimeError: example"))
         settings = self.plugin.create_settings()
-        self.assertEqual(settings[1]["text"], "Copy diagnostics")
-        settings[1]["on_click"](None)
+        diagnostics = next(row for row in settings if row["text"] == "Copy diagnostics")
+        diagnostics["on_click"](None)
         copied = self.clipboard.call_args.args[0]
         self.assertTrue(copied.startswith(f"Channel video autoplay {plugin_module['__version__']}\n"))
         self.assertNotIn("entry 0\n", copied)
         self.assertIn("entry 100\n", copied)
         self.assertTrue(copied.endswith("Traceback:\nRuntimeError: example"))
+
+    def test_internal_storage_row_shows_free_and_total_snapshot(self):
+        self.storage.free = 1000
+        self.storage.total = 5000
+        self.assertEqual(self.setting("Internal storage")["subtext"],
+                         "1000 bytes free of 5000 bytes")
+        self.storage.free = 0
+        self.assertEqual(self.setting("Internal storage")["subtext"],
+                         "0 bytes free of 5000 bytes")
+        self.assertEqual(self.storage.paths, ("/data", "/data"))
+        self.formatter.formatFileSize.assert_any_call(self.context, 1000)
+        self.formatter.formatFileSize.assert_any_call(self.context, 5000)
+        self.formatter.formatFileSize.assert_any_call(self.context, 0)
+
+    def test_internal_storage_error_shows_unavailable_without_breaking_settings(self):
+        self.storage.error = RuntimeError("statvfs failed")
+        settings = self.plugin.create_settings()
+        self.assertEqual(next(row for row in settings if row["text"] == "Internal storage")["subtext"],
+                         "Unavailable")
+        self.plugin.logger.exception.assert_called_once_with("Could not read internal storage")
+        self.assertEqual([row["text"] for row in settings],
+                         ["Continuous video playback", "Internal storage", "Copy diagnostics"])
+        self.assertTrue(self.plugin._alive)
 
     def test_copy_diagnostics_before_plugin_load_explains_how_to_capture(self):
         plugin = Plugin()

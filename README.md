@@ -5,10 +5,13 @@ regular private chat, group, channel, or forum topic and let it finish. The
 plugin finds the next newer video in that chat or topic and starts it in the
 same viewer. No separate Telegram client, playlist, or manual download is needed.
 
-Version **0.1.0** is the first confirmed working release. The user confirmed
+Version **0.1.1** adds a read-only internal storage row to the plugin settings.
+Version **0.1.0** was the first confirmed working release. The user confirmed
 continuous playback on a Samsung Galaxy Tab A9 SM-X115 with AyuGram 20261104
-and exteraGram 13.1.1 (72379). Other builds and the full device checklist below
-are not yet verified. Local tests use SDK and Java stand-ins.
+and exteraGram 13.1.1 (72379). ADB verification on the same tablet showed
+**Internal storage** matching `adb df -k /data` for the `/data` partition.
+Other builds and the full device checklist below are not yet verified. Local
+tests use SDK and Java stand-ins.
 
 ## Install from the catalog
 
@@ -23,7 +26,8 @@ After the plugin and index have been pushed to GitHub:
 2. If prompted, enable **Unknown sources** in plugin settings. Review the
    security analysis and install **Channel video autoplay**.
 3. Enable the plugin. Its settings contain **Continuous video playback**,
-   which is on by default and persists across restarts.
+   which is on by default and persists across restarts. **Internal storage**
+   shows the free and total space each time you open the settings.
 4. Open a video in a supported chat or topic. Enter fullscreen or landscape mode
    as you normally would, then let the video finish.
 
@@ -61,6 +65,16 @@ through their normal plugin-file installation flow. No ADB is required.
 Normal Telegram streaming and caching still use storage and network data. If a
 video cannot stream, the native downloader loads it into Telegram's cache before
 playback. History lookups and buffering can cause gaps between videos.
+
+## Settings and storage
+
+**Internal storage** shows the free and total space of the device data
+partition when you open the settings. The value covers all app data on that
+partition, not only Telegram. Android formats both sizes. The row is a
+snapshot: it does not update while the settings stay open, scan Telegram's
+cache, or delete files. If the storage query fails, the row shows
+**Unavailable** and writes the error to the plugin log. Playback and the other
+settings still work.
 
 ## Develop on Linux
 
@@ -102,6 +116,10 @@ On the Samsung Galaxy Tab A9 SM-X115:
 7. Test private chats with incoming and outgoing videos, basic groups,
    supergroups, and forum topics including General. Check that playback stays
    in the same chat and, when opened in a topic, the same topic.
+8. Open the plugin settings and compare **Internal storage** with
+   `adb df -k /data` at about the same time. Android Settings may show a larger
+   marketed capacity because it includes system and reserved space. Reopen the
+   settings to refresh the snapshot.
 
 To copy diagnostics without ADB:
 
