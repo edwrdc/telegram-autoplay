@@ -5,12 +5,16 @@ regular private chat, group, channel, or forum topic and let it finish. The
 plugin finds the next newer video in that chat or topic and starts it in the
 same viewer. No separate Telegram client, playlist, or manual download is needed.
 
-Version **0.3.0** is the first confirmed working release. The user confirmed
+Version **0.1.0** is the first confirmed working release. The user confirmed
 continuous playback on a Samsung Galaxy Tab A9 SM-X115 with AyuGram 20261104
 and exteraGram 13.1.1 (72379). Other builds and the full device checklist below
 are not yet verified. Local tests use SDK and Java stand-ins.
 
 ## Install from the catalog
+
+If you installed a development build, uninstall the plugin and reinstall this
+release. The version numbering has reset to 0.1.0, so the catalog may not offer
+an update. Uninstalling may reset the plugin's settings.
 
 After the plugin and index have been pushed to GitHub:
 
@@ -101,7 +105,7 @@ On the Samsung Galaxy Tab A9 SM-X115:
 
 To copy diagnostics without ADB:
 
-1. Update to version 0.1.4 or newer and enable the plugin.
+1. Install the current release and enable the plugin.
 2. Reproduce the playback problem.
 3. Close the video viewer and open this plugin's settings.
 4. Tap **Copy diagnostics**, then paste the text into your error report.
