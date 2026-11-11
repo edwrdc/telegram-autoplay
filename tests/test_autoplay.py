@@ -42,6 +42,10 @@ class JavaList(list):
         self.insert(index, value)
 
 
+class JavaResponseList(JavaList):
+    __iter__ = None
+
+
 class Player:
     def __init__(self, looping=True):
         self.looping = looping
@@ -204,7 +208,7 @@ class AutoplayTests(unittest.TestCase):
         self.run_queued(1)
 
     def reply(self, rows=(), error=None, callback=-1):
-        self.callbacks[callback](NS(messages=JavaList(rows)), error)
+        self.callbacks[callback](NS(messages=JavaResponseList(rows)), error)
         self.run_queued(0)
 
     def test_next_is_nearest_newer_video_in_same_channel(self):
@@ -216,6 +220,14 @@ class AutoplayTests(unittest.TestCase):
         self.plugin._images.invoke.assert_called_once_with(self.viewer)
         self.assertFalse(self.viewer.videoPlayer.looping)
         self.assertIsNone(self.plugin._pending)
+
+    def test_history_response_does_not_need_python_iteration(self):
+        with self.assertRaises(TypeError):
+            iter(JavaResponseList([row(11)]))
+        self.begin()
+        self.reply([row(13), row(11, video=False), row(12)])
+        self.assertTrue(self.plugin._alive)
+        self.assertEqual(self.viewer.currentMessageObject.getId(), 12)
 
     def test_request_uses_reverse_history_and_explicit_account(self):
         self.begin()
