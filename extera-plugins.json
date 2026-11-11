@@ -9,16 +9,16 @@
       "name": "Channel video autoplay",
       "description": "Experimental continuous channel video playback, oldest to newest.",
       "author": "https://github.com/edwrdc",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "sdk_version": ">=1.4.5.3",
       "category": [
         "chats",
         "tools"
       ],
       "file": "plugins/channel_video_autoplay.plugin",
-      "sha256": "a83937bdef76b367f7a36ff2dcbcc128a415c4dbb81711aa62b1f9417980bb06",
-      "size": 13692,
-      "updated_at": "2026-11-11T14:46:19Z"
+      "sha256": "ede9584fcde928d0b544b3700518bbb54b861bdf92271a4e755d1fdc981e9623",
+      "size": 13558,
+      "updated_at": "2026-11-11T14:51:15Z"
     }
   ]
 }

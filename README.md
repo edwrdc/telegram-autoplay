@@ -106,8 +106,8 @@ Catalog format and installation follow the [repository documentation](https://pl
 Player hooks were checked against
 [AyuGram PhotoViewer at 7013145](https://github.com/AyuGram/AyuGram4A/blob/7013145676d36d82ee13c02a89f72097b7490dcd/TMessagesProj/src/main/java/org/telegram/ui/PhotoViewer.java)
 and [exteraGram PhotoViewer at 6f78031](https://github.com/exteraSquad/exteraGram/blob/6f78031aafd7f27e0dfaa31a207715569a6df1a2/TMessagesProj/src/main/java/org/telegram/ui/PhotoViewer.java).
-The plugin hooks `updatePlayerState(boolean, int)`, the four-argument
-`preparePlayer`, `onResume`, and `closePhoto`. It calls `setImageIndex(int)`,
+The plugin hooks `updatePlayerState(boolean, int)`, all available
+`preparePlayer` overloads, `onResume`, and `closePhoto`. It calls `setImageIndex(int)`,
 `setImages()`, and `onActionClick(boolean)` through reflection. A positive UI
 delay lets the native completion handler finish before the plugin changes videos.
 These are private APIs, not a stable SDK playback interface.

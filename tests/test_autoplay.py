@@ -13,7 +13,7 @@ class BasePlugin:
         self.logger = Mock(spec=logging.Logger)
         self.get_setting = Mock(return_value=True)
         self.hook_method = Mock(side_effect=lambda *args: Mock())
-        self.hook_all_methods = Mock(return_value=[Mock()])
+        self.hook_all_methods = Mock(side_effect=lambda *args: [Mock()])
 
 
 class JavaInteger(int):
@@ -93,7 +93,6 @@ def module(**attrs):
 
 
 sdk_modules = {
-    "android.net": module(Uri=Mock(spec=["getClass"])),
     "android_utils": module(run_on_ui_thread=Mock()),
     "base_plugin": module(BasePlugin=BasePlugin, MethodHook=object),
     "client_utils": module(send_request=Mock()),
@@ -102,7 +101,6 @@ sdk_modules = {
     "java.lang": module(Boolean=JavaBoolean, Integer=JavaInteger),
     "org.telegram.messenger": module(
         FileLoader=Mock(PRIORITY_NORMAL=1), MediaDataController=NS(MEDIA_PHOTOVIDEO=0),
-        MediaController=NS(SavedFilterState=Mock(spec=["getClass"])),
         MessageObject=Message, MessagesController=Mock(), UserConfig=NS(selectedAccount=1),
     ),
     "org.telegram.tgnet": module(
@@ -210,13 +208,39 @@ class AutoplayTests(unittest.TestCase):
         self.photo_viewer.getClass.assert_called_once_with()
         self.viewer_class.getDeclaredField.assert_any_call("currentMessageObject")
         self.viewer_class.getDeclaredMethod.assert_any_call(
-            "preparePlayer", sdk_modules["android.net"].Uri.getClass.return_value,
-            JavaBoolean.TYPE, JavaBoolean.TYPE,
-            self.api.MediaController.SavedFilterState.getClass.return_value,
+            "updatePlayerState", JavaBoolean.TYPE, JavaInteger.TYPE,
         )
-        self.plugin.hook_all_methods.assert_called_once_with(
+        self.plugin.hook_all_methods.assert_any_call(
+            self.viewer_class, "preparePlayer", unittest.mock.ANY,
+        )
+        self.plugin.hook_all_methods.assert_any_call(
             self.viewer_class, "closePhoto", unittest.mock.ANY,
         )
+
+    def test_load_does_not_require_four_argument_prepare_player(self):
+        def lookup(name, *types):
+            if name == "preparePlayer":
+                raise RuntimeError("NoSuchMethodException: preparePlayer(Uri, boolean, boolean, SavedFilterState)")
+            return Mock()
+
+        self.viewer_class.getDeclaredMethod.side_effect = lookup
+        plugin = Plugin()
+        plugin.on_plugin_load()
+        self.assertTrue(plugin._alive)
+        self.assertEqual([call.args[1] for call in plugin.hook_all_methods.call_args_list],
+                         ["preparePlayer", "closePhoto"])
+
+    def test_prepare_hook_handles_nested_overloads_without_losing_original_looping(self):
+        hook = self.plugin.hook_all_methods.call_args_list[0].args[2]
+        player = self.viewer.videoPlayer
+        for arity in (3, 4, 5):
+            with self.subTest(arity=arity):
+                param = Mock(thisObject=self.viewer, args=[None] * arity)
+                param.hasThrowable.return_value = False
+                hook.after_hooked_method(param)
+                self.assertFalse(player.looping)
+        self.plugin._restore_loop()
+        self.assertTrue(player.looping)
 
     def test_skips_entire_nonvideo_pages(self):
         self.begin()
@@ -329,7 +353,7 @@ class AutoplayTests(unittest.TestCase):
         self.viewer.videoPlayer.setLooping(True)  # Native PhotoViewer.onResume.
         param = Mock(thisObject=self.viewer)
         param.hasThrowable.return_value = False
-        hook = self.plugin.hook_method.call_args_list[2].args[1]
+        hook = self.plugin.hook_method.call_args_list[1].args[1]
         hook.after_hooked_method(param)
         self.assertFalse(self.viewer.videoPlayer.looping)
         self.plugin._restore_loop()
@@ -424,12 +448,27 @@ class AutoplayTests(unittest.TestCase):
 
     def test_unsupported_api_fails_load_and_unhooks_partial_install(self):
         plugin = Plugin()
-        plugin.hook_all_methods.return_value = []
+        prepared = Mock()
+        plugin.hook_all_methods.side_effect = [[prepared], []]
         with self.assertRaisesRegex(RuntimeError, "viewer close"):
             plugin.on_plugin_load()
         self.assertFalse(plugin._alive)
         self.assertEqual(plugin._unhooks, [])
-        self.assertEqual(plugin.hook_method.call_count, 3)
+        self.assertEqual(plugin.hook_method.call_count, 2)
+        prepared.unhook.assert_called_once()
+
+    def test_missing_prepare_player_unhooks_partial_install(self):
+        plugin = Plugin()
+        installed = [Mock(), Mock()]
+        plugin.hook_method.side_effect = installed
+        plugin.hook_all_methods.side_effect = None
+        plugin.hook_all_methods.return_value = []
+        with self.assertRaisesRegex(RuntimeError, "preparePlayer"):
+            plugin.on_plugin_load()
+        self.assertFalse(plugin._alive)
+        self.assertEqual(plugin._unhooks, [])
+        for unhook in installed:
+            unhook.unhook.assert_called_once()
 
     def test_unload_cancels_work_and_restores_short_clip(self):
         player = self.viewer.videoPlayer

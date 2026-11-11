@@ -1,11 +1,10 @@
-from android.net import Uri
 from android_utils import run_on_ui_thread
 from base_plugin import BasePlugin, MethodHook
 from client_utils import send_request
 from hook_utils import get_private_field, set_private_field
 from java.lang import Boolean, Integer
 from org.telegram.messenger import (
-    FileLoader, MediaController, MediaDataController, MessageObject,
+    FileLoader, MediaDataController, MessageObject,
     MessagesController, UserConfig,
 )
 from org.telegram.tgnet import ConnectionsManager, TLRPC
@@ -16,7 +15,7 @@ __id__ = "channel_video_autoplay"
 __name__ = "Channel video autoplay"
 __description__ = "Experimental continuous channel video playback, oldest to newest."
 __author__ = "https://github.com/edwrdc"
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 __sdk_version__ = ">=1.4.5.3"
 __category__ = ["chats", "tools"]
 
@@ -75,23 +74,21 @@ class ChannelVideoAutoplayPlugin(BasePlugin):
             self._images = self._method("setImages")
             self._action = self._method("onActionClick", Boolean.TYPE)
             state = self._method("updatePlayerState", Boolean.TYPE, Integer.TYPE)
-            prepare = self._method(
-                "preparePlayer", Uri.getClass(), Boolean.TYPE,
-                Boolean.TYPE,
-                MediaController.SavedFilterState.getClass(),
-            )
             for method, handler in (
-                (state, PlaybackHook(self)), (prepare, PreparedHook(self)),
+                (state, PlaybackHook(self)),
                 (self._method("onResume"), PreparedHook(self)),
             ):
                 unhook = self.hook_method(method, handler)
                 if not unhook:
                     raise RuntimeError("Could not install viewer hook")
                 self._unhooks.append(unhook)
-            leave = self.hook_all_methods(self._viewer_class, "closePhoto", LeaveHook(self))
-            if not leave:
-                raise RuntimeError("Could not hook viewer close")
-            self._unhooks.extend(leave)
+            for name, handler in (
+                ("preparePlayer", PreparedHook(self)), ("closePhoto", LeaveHook(self)),
+            ):
+                unhooks = self.hook_all_methods(self._viewer_class, name, handler)
+                if not unhooks:
+                    raise RuntimeError(f"Could not hook viewer {name}")
+                self._unhooks.extend(unhooks)
             self._alive = True
             run_on_ui_thread(self._refresh)
             self.logger.info(f"Channel autoplay {__version__} loaded")
