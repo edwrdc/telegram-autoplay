@@ -6,7 +6,7 @@ from client_utils import send_request
 from hook_utils import get_private_field, set_private_field
 from java.lang import Boolean, Integer
 from org.telegram.messenger import (
-    FileLoader, MediaDataController, MessageObject,
+    DialogObject, FileLoader, MediaDataController, MessageObject,
     MessagesController, UserConfig,
 )
 from org.telegram.tgnet import ConnectionsManager, TLRPC
@@ -15,9 +15,9 @@ from ui.settings import Switch, Text
 
 __id__ = "channel_video_autoplay"
 __name__ = "Channel video autoplay"
-__description__ = "Experimental continuous channel video playback, oldest to newest."
+__description__ = "Experimental continuous videos in chats, channels, and forum topics, oldest to newest."
 __author__ = "https://github.com/edwrdc"
-__version__ = "0.1.4"
+__version__ = "0.2.0"
 __sdk_version__ = ">=1.4.5.3"
 __category__ = ["chats", "tools"]
 
@@ -76,7 +76,7 @@ class ChannelVideoAutoplayPlugin(BasePlugin):
                 "currentMessageObject", "currentAccount", "currentDialogId",
                 "classGuid", "videoPlayer", "inPreview", "currentEditMode",
                 "isInline", "switchingInlineMode", "imagesArr", "imagesByIds",
-                "currentIndex", "opennedFromMedia", "sharedMediaType",
+                "currentIndex", "opennedFromMedia", "sharedMediaType", "topicId",
             ):
                 self._viewer_class.getDeclaredField(name)
             self._index = self._method("setImageIndex", Integer.TYPE)
@@ -113,8 +113,8 @@ class ChannelVideoAutoplayPlugin(BasePlugin):
 
     def create_settings(self):
         return [Switch(
-            key="enabled", text="Continuous channel videos", default=True,
-            subtext="Play the next newer video. Uses your normal Telegram data and cache.",
+            key="enabled", text="Continuous video playback", default=True,
+            subtext="Play the next newer video in this chat or topic. Uses Telegram data and cache.",
             on_change=self._toggle,
         ), Text(
             text="Copy diagnostics",
@@ -163,20 +163,19 @@ class ChannelVideoAutoplayPlugin(BasePlugin):
         account = get_private_field(viewer, "currentAccount")
         dialog = message.getDialogId()
         if (account != message.currentAccount or account != UserConfig.selectedAccount
-                or dialog >= 0 or dialog != get_private_field(viewer, "currentDialogId")):
+                or dialog == 0 or dialog != get_private_field(viewer, "currentDialogId")):
             self.logger.info(
                 "Autoplay skipped: scope mismatch; "
                 f"message_account_matches={account == message.currentAccount}, "
                 f"selected_account_matches={account == UserConfig.selectedAccount}, "
-                f"negative_dialog={dialog < 0}, "
+                f"nonzero_dialog={dialog != 0}, "
                 f"viewer_dialog_matches={dialog == get_private_field(viewer, 'currentDialogId')}"
             )
             return False
-        chat = MessagesController.getInstance(account).getChat(-dialog)
-        eligible = chat is not None and chat.broadcast and not chat.megagroup
-        if not eligible:
-            self.logger.info("Autoplay skipped: chat is not a known broadcast channel")
-        return eligible
+        if DialogObject.isEncryptedDialog(dialog):
+            self.logger.info("Autoplay skipped: Secret Chats do not support server history")
+            return False
+        return True
 
     def _update_loop(self, viewer):
         player = get_private_field(viewer, "videoPlayer")
@@ -208,6 +207,8 @@ class ChannelVideoAutoplayPlugin(BasePlugin):
             "viewer": viewer, "player": player,
             "account": message.currentAccount, "dialog": message.getDialogId(),
             "id": message.getId(), "guid": get_private_field(viewer, "classGuid"),
+            "topic": (get_private_field(viewer, "topicId")
+                      or MessageObject.getTopicId(message.messageOwner, False)),
         }
         self._pending = pending
         # A positive delay lets the native end handler finish rewinding and pausing.
@@ -224,6 +225,8 @@ class ChannelVideoAutoplayPlugin(BasePlugin):
                 and message.currentAccount == pending["account"]
                 and message.getDialogId() == pending["dialog"]
                 and message.getId() == pending["id"]
+                and (get_private_field(viewer, "topicId")
+                     or MessageObject.getTopicId(message.messageOwner, False)) == pending["topic"]
                 and not pending["player"].isPlaying())
 
     def _fetch(self, pending, cursor):
@@ -232,7 +235,11 @@ class ChannelVideoAutoplayPlugin(BasePlugin):
                 if self._pending is pending:
                     self._cancel()
                 return
-            request = TLRPC.TL_messages_getHistory()
+            if pending["topic"]:
+                request = TLRPC.TL_messages_getReplies()
+                request.msg_id = pending["topic"]
+            else:
+                request = TLRPC.TL_messages_getHistory()
             request.peer = MessagesController.getInstance(pending["account"]).getInputPeer(
                 pending["dialog"]
             )
@@ -269,8 +276,9 @@ class ChannelVideoAutoplayPlugin(BasePlugin):
                 raise RuntimeError("Empty history response")
             rows = sorted(
                 (row for row in response.messages
-                 if row.id > cursor and row.peer_id is not None
-                 and row.peer_id.channel_id == -pending["dialog"]),
+                 if row.id > cursor and MessageObject.getDialogId(row) == pending["dialog"]
+                 and (not pending["topic"]
+                      or MessageObject.getTopicId(row, True) == pending["topic"])),
                 key=lambda row: row.id,
             )
             for row in rows:
@@ -280,7 +288,7 @@ class ChannelVideoAutoplayPlugin(BasePlugin):
                     self._show(pending, message)
                     return
             if not rows:
-                self.logger.info("Autoplay reached the end of the channel")
+                self.logger.info("Autoplay reached the end of the current chat or topic")
                 self._cancel()
                 return
             run_on_ui_thread(lambda: self._fetch(pending, rows[-1].id), 350)
@@ -295,12 +303,12 @@ class ChannelVideoAutoplayPlugin(BasePlugin):
                       and images.get(i).getId() == message.getId()), None)
         if index is None:
             descending = get_private_field(viewer, "opennedFromMedia")
-            channel_indices = [i for i in range(images.size())
-                               if images.get(i).getDialogId() == pending["dialog"]]
-            index = next((i for i in channel_indices
+            dialog_indices = [i for i in range(images.size())
+                              if images.get(i).getDialogId() == pending["dialog"]]
+            index = next((i for i in dialog_indices
                           if (images.get(i).getId() < message.getId() if descending
                               else images.get(i).getId() > message.getId())),
-                         channel_indices[-1] + 1)
+                         dialog_indices[-1] + 1)
             current = get_private_field(viewer, "currentIndex")
             # shortcut: sparse inserts can skew gallery counters, use native paging if exact counts are needed.
             images.add(index, message)
@@ -322,7 +330,7 @@ class ChannelVideoAutoplayPlugin(BasePlugin):
             FileLoader.getInstance(pending["account"]).loadFile(
                 message.getDocument(), message, FileLoader.PRIORITY_NORMAL, 0,
             )
-        self.logger.info("Autoplay selected the next channel video")
+        self.logger.info("Autoplay selected the next video in the current chat or topic")
 
     def _set(self, viewer, name, value):
         if not set_private_field(viewer, name, value):

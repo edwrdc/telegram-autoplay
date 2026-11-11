@@ -57,8 +57,11 @@ class Player:
         return self.playing
 
 
-def row(message_id, video=True, channel=123, streamable=True):
-    return NS(id=message_id, peer_id=NS(channel_id=channel),
+def row(message_id, video=True, channel=123, streamable=True, *, chat=0, user=0, incoming=False, topic=0):
+    peer = NS(channel_id=0 if chat or user else channel, chat_id=chat,
+              user_id=(1 if incoming else user) if user else 0)
+    return NS(id=message_id, peer_id=peer, from_id=NS(user_id=user if incoming else 1),
+              out=not incoming, dialog_id=0, topic=topic,
               media=DocumentMedia() if video else None, video=video, streamable=streamable)
 
 
@@ -73,7 +76,16 @@ class Message:
         return self.messageOwner.id
 
     def getDialogId(self):
-        return -self.messageOwner.peer_id.channel_id
+        raw = self.messageOwner if isinstance(self, Message) else self
+        if raw.dialog_id == 0 and raw.peer_id is not None:
+            peer = raw.peer_id
+            raw.dialog_id = (-peer.chat_id if peer.chat_id else -peer.channel_id if peer.channel_id
+                             else peer.user_id if raw.out else raw.from_id.user_id)
+        return raw.dialog_id
+
+    @staticmethod
+    def getTopicId(raw, sure_is_forum):
+        return raw.topic or (1 if sure_is_forum else 0)
 
     def getDocument(self):
         return self.messageOwner.media
@@ -92,6 +104,14 @@ def module(**attrs):
     return result
 
 
+class HistoryRequest(NS):
+    pass
+
+
+class RepliesRequest(NS):
+    pass
+
+
 sdk_modules = {
     "android_utils": module(run_on_ui_thread=Mock(), copy_to_clipboard=Mock()),
     "base_plugin": module(BasePlugin=BasePlugin, MethodHook=object),
@@ -101,11 +121,13 @@ sdk_modules = {
     "java.lang": module(Boolean=JavaBoolean, Integer=JavaInteger),
     "org.telegram.messenger": module(
         FileLoader=Mock(PRIORITY_NORMAL=1), MediaDataController=NS(MEDIA_PHOTOVIDEO=0),
+        DialogObject=NS(isEncryptedDialog=lambda dialog: dialog > 0 and bool(dialog & (1 << 62))),
         MessageObject=Message, MessagesController=Mock(), UserConfig=NS(selectedAccount=1),
     ),
     "org.telegram.tgnet": module(
         ConnectionsManager=Mock(),
-        TLRPC=NS(TL_messageMediaDocument=DocumentMedia, TL_messages_getHistory=NS),
+        TLRPC=NS(TL_messageMediaDocument=DocumentMedia, TL_messages_getHistory=HistoryRequest,
+                 TL_messages_getReplies=RepliesRequest),
     ),
     "org.telegram.ui": module(PhotoViewer=Mock(spec=["getClass", "hasInstance", "getInstance"])),
     "ui.settings": module(Switch=lambda **kwargs: kwargs, Text=lambda **kwargs: kwargs),
@@ -132,9 +154,6 @@ class AutoplayTests(unittest.TestCase):
         self.api = sdk_modules["org.telegram.messenger"]
         self.api.UserConfig.selectedAccount = 1
         self.api.MessagesController.reset_mock()
-        self.api.MessagesController.getInstance.return_value.getChat.return_value = NS(
-            broadcast=True, megagroup=False,
-        )
         self.api.FileLoader.reset_mock()
         self.connections = sdk_modules["org.telegram.tgnet"].ConnectionsManager
         self.connections.reset_mock()
@@ -149,6 +168,7 @@ class AutoplayTests(unittest.TestCase):
         message = Message(1, row(10))
         self.viewer = NS(
             currentMessageObject=message, currentAccount=1, currentDialogId=-123,
+            topicId=0,
             classGuid=5, videoPlayer=Player(), inPreview=False, currentEditMode=0,
             isInline=False, switchingInlineMode=False, imagesArr=JavaList([message]),
             imagesByIds=[NS(put=Mock())], currentIndex=0, opennedFromMedia=False,
@@ -203,6 +223,102 @@ class AutoplayTests(unittest.TestCase):
         self.assertEqual(account, 1)
         self.assertEqual((req.offset_id, req.add_offset, req.limit, req.min_id), (11, -100, 100, 0))
         self.api.MessagesController.getInstance.return_value.getInputPeer.assert_called_with(-123)
+
+    def test_supergroup_video_is_eligible(self):
+        self.api.MessagesController.getInstance.return_value.getChat.return_value = NS(
+            broadcast=False, megagroup=True,
+        )
+        self.assertTrue(self.plugin._eligible(self.viewer))
+        self.plugin._update_loop(self.viewer)
+        self.assertFalse(self.viewer.videoPlayer.looping)
+
+    def test_missing_chat_metadata_does_not_disable_autoplay(self):
+        controller = self.api.MessagesController.getInstance.return_value
+        controller.getChat.return_value = None
+        self.assertTrue(self.plugin._eligible(self.viewer))
+        controller.getChat.assert_not_called()
+
+    def test_basic_group_video_advances_in_same_group(self):
+        self.viewer.currentMessageObject.messageOwner = row(10, chat=321)
+        self.viewer.currentDialogId = -321
+        self.begin()
+        self.reply([row(11, chat=999), row(12, chat=321)])
+        self.assertEqual(self.viewer.currentMessageObject.getId(), 12)
+        self.assertEqual(self.viewer.currentMessageObject.getDialogId(), -321)
+
+    def test_private_chat_handles_incoming_and_outgoing_video_peers(self):
+        self.viewer.currentMessageObject.messageOwner = row(10, user=77, incoming=True)
+        self.viewer.currentDialogId = 77
+        self.begin()
+        self.assertIsInstance(self.requests[0][1], HistoryRequest)
+        self.reply([row(11, user=88), row(12, user=77, incoming=True), row(13, user=77)])
+        self.assertEqual(self.viewer.currentMessageObject.getId(), 12)
+        self.assertEqual(self.viewer.currentMessageObject.getDialogId(), 77)
+        self.begin()
+        self.reply([row(13, user=77)])
+        self.assertEqual(self.viewer.currentMessageObject.getId(), 13)
+        self.assertEqual(self.viewer.currentMessageObject.getDialogId(), 77)
+
+    def test_secret_chats_are_not_sent_to_server_history(self):
+        dialog = (1 << 62) | 7
+        self.viewer.currentMessageObject.messageOwner.dialog_id = dialog
+        self.viewer.currentDialogId = dialog
+        self.plugin._ended(self.viewer)
+        self.assertIsNone(self.plugin._pending)
+        self.send.assert_not_called()
+
+    def test_topic_uses_scoped_replies_instead_of_whole_group_history(self):
+        self.viewer.topicId = 27
+        self.viewer.currentMessageObject.messageOwner.topic = 27
+        self.begin()
+        req = self.requests[0][1]
+        self.assertIsInstance(req, RepliesRequest)
+        self.assertEqual(req.msg_id, 27)
+        self.assertEqual((req.offset_id, req.add_offset, req.limit), (11, -100, 100))
+        self.reply([row(11, topic=28), row(12, video=False, topic=27), row(14, topic=27)])
+        self.assertEqual(self.viewer.currentMessageObject.getId(), 14)
+        self.assertEqual(self.viewer.currentMessageObject.messageOwner.topic, 27)
+
+    def test_topic_pagination_stays_in_current_topic(self):
+        self.viewer.topicId = 27
+        self.viewer.currentMessageObject.messageOwner.topic = 27
+        self.begin()
+        self.reply([row(i, video=False, topic=27) for i in range(11, 111)])
+        self.run_queued(350)
+        self.assertIsInstance(self.requests[1][1], RepliesRequest)
+        self.assertEqual(self.requests[1][1].msg_id, 27)
+        self.assertEqual(self.requests[1][1].offset_id, 111)
+        self.reply([row(111, topic=28), row(112, topic=27)])
+        self.assertEqual(self.viewer.currentMessageObject.getId(), 112)
+
+    def test_topic_can_be_inferred_when_viewer_topic_is_zero(self):
+        self.viewer.currentMessageObject.messageOwner.topic = 27
+        self.begin()
+        self.assertEqual(self.requests[0][1].msg_id, 27)
+        self.reply([row(11, topic=28), row(12, topic=27)])
+        self.assertEqual(self.viewer.currentMessageObject.getId(), 12)
+
+    def test_general_topic_keeps_unmarked_general_messages(self):
+        self.viewer.topicId = 1
+        self.begin()
+        self.assertEqual(self.requests[0][1].msg_id, 1)
+        self.reply([row(11, topic=27), row(12)])
+        self.assertEqual(self.viewer.currentMessageObject.getId(), 12)
+
+    def test_switching_topic_invalidates_pending_response(self):
+        self.viewer.topicId = 27
+        self.begin()
+        self.viewer.topicId = 28
+        self.reply([row(11, topic=27)])
+        self.assertIsNone(self.plugin._pending)
+        self.plugin._index.invoke.assert_not_called()
+
+    def test_topic_does_not_continue_into_another_topic(self):
+        self.viewer.topicId = 27
+        self.begin()
+        self.reply([row(11, topic=28)])
+        self.assertIsNone(self.plugin._pending)
+        self.plugin._index.invoke.assert_not_called()
 
     def test_reflection_uses_java_classes_not_chaquopy_wrappers(self):
         self.assertTrue(self.plugin._alive)
@@ -350,20 +466,13 @@ class AutoplayTests(unittest.TestCase):
         self.reply([row(11)])
         self.plugin._index.invoke.assert_not_called()
 
-    def test_channel_only_and_native_video_only(self):
+    def test_only_native_videos_outside_preview_and_editing_are_eligible(self):
         for field, value in (("inPreview", True), ("currentEditMode", 1),
                              ("isInline", True), ("switchingInlineMode", True)):
             with self.subTest(field=field):
                 setattr(self.viewer, field, value)
                 self.assertFalse(self.plugin._eligible(self.viewer))
                 setattr(self.viewer, field, False if field != "currentEditMode" else 0)
-        chat = self.api.MessagesController.getInstance.return_value.getChat.return_value
-        chat.megagroup = True
-        self.assertFalse(self.plugin._eligible(self.viewer))
-        chat.megagroup = False
-        chat.broadcast = False
-        self.assertFalse(self.plugin._eligible(self.viewer))
-        chat.broadcast = True
         message = self.viewer.currentMessageObject
         for attribute, value in (("scheduled", True), ("currentAccount", 2)):
             old = getattr(message, attribute)

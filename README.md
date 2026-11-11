@@ -1,11 +1,12 @@
 # Channel video autoplay
 
-An experimental Python plugin for AyuGram Full on Android. Open a channel video
-and let it finish. The plugin finds the next newer video and starts it in the
+An experimental Python plugin for AyuGram Full on Android. Open a video in a
+regular private chat, group, channel, or forum topic and let it finish. The
+plugin finds the next newer video in that chat or topic and starts it in the
 same viewer. No separate Telegram client, playlist, or manual download is needed.
 
-**Not device-tested yet.** Local tests use SDK and Java stand-ins. They do not
-prove compatibility with your installed AyuGram build or fullscreen playback.
+Device testing is in progress. Successful autoplay is not yet confirmed. Local
+tests use SDK and Java stand-ins and do not prove native player compatibility.
 
 ## Install from the catalog
 
@@ -15,9 +16,9 @@ After the plugin and index have been pushed to GitHub:
    `https://github.com/edwrdc/telegram-autoplay/tree/main`
 2. If prompted, enable **Unknown sources** in plugin settings. Review the
    security analysis and install **Channel video autoplay**.
-3. Enable the plugin. Its settings contain **Continuous channel videos**,
+3. Enable the plugin. Its settings contain **Continuous video playback**,
    which is on by default and persists across restarts.
-4. Open a video in a broadcast channel. Enter fullscreen or landscape mode
+4. Open a video in a supported chat or topic. Enter fullscreen or landscape mode
    as you normally would, then let the video finish.
 
 The catalog requires an AyuGram Full build with exteraGram plugin support and
@@ -27,24 +28,28 @@ through their normal plugin-file installation flow. No ADB is required.
 
 ## Playback rules
 
-- Playback follows increasing channel message IDs, from older posts to newer
+- Playback follows increasing message IDs, from older posts to newer
   posts. It does not follow the visual direction of the media gallery.
 - Text, photos, animations, round video messages, and web embeds are skipped.
   Short and long videos, including files that Telegram recognizes as videos,
   use the native player. Unsupported codecs remain unsupported.
 - History loads in pages of 100 messages, so autoplay can continue beyond the
-  viewer's cached media. It stays in the original channel and account.
+  viewer's cached media. It stays in the original chat and account.
+- Forum topics use topic-specific history. Playback stops at the last video
+  in that topic instead of continuing into another topic.
+- Secret Chats are excluded because server history cannot access their local
+  messages. Other regular private chats and groups are supported.
 - Short clips stop looping while autoplay is enabled. Disabling or unloading
   the plugin restores the player's previous looping setting.
 - The plugin changes videos inside the existing viewer. It does not close the
   viewer or request a different orientation. Fullscreen continuity still needs
   testing on the tablet. Gallery counters can be approximate after the plugin
   inserts a video beyond the cached media.
-- At the channel's end, autoplay stops. It does not wait for future posts.
+- At the chat or topic's end, autoplay stops. It does not wait for future posts.
   History errors and 20-second request timeouts stop the current advance without
   skipping a video or repeatedly retrying. Replay the video to try again.
 - Closing the viewer, disabling the plugin, or unloading it cancels pending
-  history requests. Replies are ignored if the viewer, video, or account changed,
+  history requests. Replies are ignored if the viewer, video, account, or topic changed,
   or if you resumed playback manually.
 
 Normal Telegram streaming and caching still use storage and network data. If a
@@ -86,8 +91,11 @@ On the Samsung Galaxy Tab A9 SM-X115:
    change the video you selected.
 5. Disable autoplay, restart AyuGram, and confirm the setting persists. Re-enable
    it, background and resume the app, and check that short clips still advance.
-6. Test an offline connection and plugin unload. Confirm that private chats,
-   groups, video messages, and web players are unchanged.
+6. Test an offline connection and plugin unload. Confirm that Secret Chats,
+   round video messages, and web players are unchanged.
+7. Test private chats with incoming and outgoing videos, basic groups,
+   supergroups, and forum topics including General. Check that playback stays
+   in the same chat and, when opened in a topic, the same topic.
 
 To copy diagnostics without ADB:
 
