@@ -1,4 +1,6 @@
-from android_utils import run_on_ui_thread
+from collections import deque
+
+from android_utils import copy_to_clipboard, run_on_ui_thread
 from base_plugin import BasePlugin, MethodHook
 from client_utils import send_request
 from hook_utils import get_private_field, set_private_field
@@ -9,13 +11,13 @@ from org.telegram.messenger import (
 )
 from org.telegram.tgnet import ConnectionsManager, TLRPC
 from org.telegram.ui import PhotoViewer
-from ui.settings import Switch
+from ui.settings import Switch, Text
 
 __id__ = "channel_video_autoplay"
 __name__ = "Channel video autoplay"
 __description__ = "Experimental continuous channel video playback, oldest to newest."
 __author__ = "https://github.com/edwrdc"
-__version__ = "0.1.3"
+__version__ = "0.1.4"
 __sdk_version__ = ">=1.4.5.3"
 __category__ = ["chats", "tools"]
 
@@ -65,8 +67,10 @@ class ChannelVideoAutoplayPlugin(BasePlugin):
         self._request = None
         self._loop = None
         self._unhooks = []
+        self._diagnostics = deque(maxlen=100)
         self._viewer_class = PhotoViewer.getClass()
         try:
+            self.logger.add_handler(self._capture_log)
             # shortcut: private viewer APIs, recheck against source when AyuGram changes them.
             for name in (
                 "currentMessageObject", "currentAccount", "currentDialogId",
@@ -112,7 +116,20 @@ class ChannelVideoAutoplayPlugin(BasePlugin):
             key="enabled", text="Continuous channel videos", default=True,
             subtext="Play the next newer video. Uses your normal Telegram data and cache.",
             on_change=self._toggle,
+        ), Text(
+            text="Copy diagnostics",
+            subtext="Copy the last 100 log entries after reproducing the problem.",
+            on_click=self._copy_diagnostics,
         )]
+
+    def _capture_log(self, record):
+        self._diagnostics.append(record.text)
+
+    def _copy_diagnostics(self, view):
+        report = "\n".join(tuple(getattr(self, "_diagnostics", ())))
+        if not report:
+            report = "No diagnostics recorded. Enable the plugin and reproduce the problem first."
+        copy_to_clipboard(f"Channel video autoplay {__version__}\n{report}")
 
     def _toggle(self, enabled):
         self._enabled = enabled
@@ -345,3 +362,4 @@ class ChannelVideoAutoplayPlugin(BasePlugin):
                 self.logger.exception("Could not remove a viewer hook")
         self._unhooks.clear()
         run_on_ui_thread(self._restore_loop)
+        self.logger.remove_handler(self._capture_log)

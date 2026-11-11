@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 
 class BasePlugin:
     def __init__(self):
-        self.logger = Mock(spec=logging.Logger)
+        self.logger = Mock(spec=[*dir(logging.Logger), "add_handler", "remove_handler"])
         self.get_setting = Mock(return_value=True)
         self.hook_method = Mock(side_effect=lambda *args: Mock())
         self.hook_all_methods = Mock(side_effect=lambda *args: [Mock()])
@@ -93,7 +93,7 @@ def module(**attrs):
 
 
 sdk_modules = {
-    "android_utils": module(run_on_ui_thread=Mock()),
+    "android_utils": module(run_on_ui_thread=Mock(), copy_to_clipboard=Mock()),
     "base_plugin": module(BasePlugin=BasePlugin, MethodHook=object),
     "client_utils": module(send_request=Mock()),
     "hook_utils": module(get_private_field=getattr,
@@ -108,7 +108,7 @@ sdk_modules = {
         TLRPC=NS(TL_messageMediaDocument=DocumentMedia, TL_messages_getHistory=NS),
     ),
     "org.telegram.ui": module(PhotoViewer=Mock(spec=["getClass", "hasInstance", "getInstance"])),
-    "ui.settings": module(Switch=lambda **kwargs: kwargs),
+    "ui.settings": module(Switch=lambda **kwargs: kwargs, Text=lambda **kwargs: kwargs),
 }
 with patch.dict("sys.modules", sdk_modules):
     plugin_module = runpy.run_path(str(
@@ -124,6 +124,8 @@ class AutoplayTests(unittest.TestCase):
         self.requests = []
         self.ui = sdk_modules["android_utils"].run_on_ui_thread
         self.ui.side_effect = lambda fn, delay=0: self.queue.append((delay, fn))
+        self.clipboard = sdk_modules["android_utils"].copy_to_clipboard
+        self.clipboard.reset_mock()
         self.send = sdk_modules["client_utils"].send_request
         self.send.reset_mock()
         self.send.side_effect = self.send_request
@@ -264,6 +266,36 @@ class AutoplayTests(unittest.TestCase):
         self.viewer.videoPlayer = None
         self.plugin._update_loop(self.viewer)
         self.plugin.logger.info.assert_any_call("Autoplay waiting: native video player is not attached")
+
+    def test_copy_diagnostics_uses_recent_plugin_logs_and_preserves_tracebacks(self):
+        self.plugin.logger.add_handler.assert_called_once_with(self.plugin._capture_log)
+        handler = self.plugin.logger.add_handler.call_args.args[0]
+        for index in range(101):
+            handler(NS(text=f"entry {index}"))
+        self.assertEqual(len(self.plugin._diagnostics), 100)
+        self.assertEqual(self.plugin._diagnostics[0], "entry 1")
+        handler(NS(text="Traceback:\nRuntimeError: example"))
+        settings = self.plugin.create_settings()
+        self.assertEqual(settings[1]["text"], "Copy diagnostics")
+        settings[1]["on_click"](None)
+        copied = self.clipboard.call_args.args[0]
+        self.assertTrue(copied.startswith(f"Channel video autoplay {plugin_module['__version__']}\n"))
+        self.assertNotIn("entry 0\n", copied)
+        self.assertIn("entry 100\n", copied)
+        self.assertTrue(copied.endswith("Traceback:\nRuntimeError: example"))
+
+    def test_copy_diagnostics_before_plugin_load_explains_how_to_capture(self):
+        plugin = Plugin()
+        plugin._copy_diagnostics(None)
+        self.assertIn("Enable the plugin and reproduce the problem first",
+                      self.clipboard.call_args.args[0])
+
+    def test_unload_detaches_diagnostic_handler_but_keeps_report(self):
+        self.plugin._capture_log(NS(text="Last diagnostic"))
+        self.plugin.on_plugin_unload()
+        self.plugin.logger.remove_handler.assert_called_once_with(self.plugin._capture_log)
+        self.plugin._copy_diagnostics(None)
+        self.assertIn("Last diagnostic", self.clipboard.call_args.args[0])
 
     def test_skips_entire_nonvideo_pages(self):
         self.begin()
