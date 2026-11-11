@@ -79,6 +79,20 @@ class StorageStat:
         return StorageStat.total
 
 
+class Toast:
+    LENGTH_SHORT = 0
+    calls = []
+    shown = []
+    error = None
+
+    @classmethod
+    def makeText(cls, context, text, duration):
+        cls.calls.append((context, text, duration))
+        if cls.error is not None:
+            raise cls.error
+        return NS(show=lambda: cls.shown.append(text))
+
+
 def row(message_id, video=True, channel=123, streamable=True, *, chat=0, user=0, incoming=False, topic=0):
     peer = NS(channel_id=0 if chat or user else channel, chat_id=chat,
               user_id=(1 if incoming else user) if user else 0)
@@ -137,6 +151,7 @@ class RepliesRequest(NS):
 sdk_modules = {
     "android.os": module(Environment=Mock(), StatFs=StorageStat),
     "android.text.format": module(Formatter=NS(formatFileSize=Mock())),
+    "android.widget": module(Toast=Toast),
     "android_utils": module(run_on_ui_thread=Mock(), copy_to_clipboard=Mock()),
     "base_plugin": module(BasePlugin=BasePlugin, MethodHook=object),
     "client_utils": module(send_request=Mock()),
@@ -193,6 +208,10 @@ class AutoplayTests(unittest.TestCase):
         self.formatter.formatFileSize.reset_mock()
         self.formatter.formatFileSize.side_effect = lambda context, size: f"{size} bytes"
         self.context = sdk_modules["org.telegram.messenger"].ApplicationLoader.applicationContext
+        self.toast = sdk_modules["android.widget"].Toast
+        self.toast.calls = []
+        self.toast.shown = []
+        self.toast.error = None
         self.viewer_class = Mock(spec=["getDeclaredField", "getDeclaredMethod"])
         self.viewer_class.getDeclaredField.side_effect = lambda name: NS(
             setAccessible=Mock(),
@@ -572,6 +591,65 @@ class AutoplayTests(unittest.TestCase):
             setattr(message, attribute, old)
         message.messageOwner.media = NS(webpage="not a direct channel video")
         self.assertFalse(self.plugin._eligible(self.viewer))
+
+    def test_notice_shows_once_for_prepare_resume_and_player_updates(self):
+        prepared = self.plugin.hook_all_methods.call_args_list[0].args[2]
+        param = Mock(thisObject=self.viewer)
+        param.hasThrowable.return_value = False
+        prepared.after_hooked_method(param)
+        prepared.after_hooked_method(param)
+        resumed = self.plugin.hook_method.call_args_list[1].args[1]
+        resumed.after_hooked_method(param)
+        self.plugin._update_loop(self.viewer)
+        self.assertEqual(self.toast.shown, ["Continuous video playback is enabled"])
+        self.assertEqual(self.toast.calls, [
+            (self.context, "Continuous video playback is enabled", Toast.LENGTH_SHORT),
+        ])
+
+    def test_notice_survives_autoplay_transition_and_cancellation(self):
+        self.plugin._update_loop(self.viewer)
+        self.begin()
+        self.reply([row(11)])
+        self.plugin._cancel()
+        self.plugin._update_loop(self.viewer)
+        self.assertEqual(len(self.toast.shown), 1)
+        self.assertTrue(self.plugin._noticed)
+
+    def test_closing_viewer_resets_notice_for_the_next_session(self):
+        self.plugin._update_loop(self.viewer)
+        plugin_module["LeaveHook"](self.plugin).before_hooked_method(NS(thisObject=self.viewer))
+        self.assertFalse(self.plugin._noticed)
+        self.plugin._update_loop(self.viewer)
+        self.assertEqual(len(self.toast.shown), 2)
+
+    def test_disabled_ineligible_and_playerless_videos_do_not_spend_the_notice(self):
+        self.plugin._enabled = False
+        self.plugin._update_loop(self.viewer)
+        self.plugin._enabled = True
+        self.viewer.videoPlayer = None
+        self.plugin._update_loop(self.viewer)
+        self.viewer.videoPlayer = Player()
+        self.viewer.visible = False
+        self.plugin._update_loop(self.viewer)
+        self.viewer.visible = True
+        self.viewer.inPreview = True
+        self.plugin._update_loop(self.viewer)
+        self.viewer.inPreview = False
+        self.assertEqual(self.toast.calls, [])
+        self.assertFalse(self.plugin._noticed)
+        self.plugin._update_loop(self.viewer)
+        self.assertEqual(len(self.toast.shown), 1)
+
+    def test_notice_failure_keeps_autoplay_and_loop_override_without_retry(self):
+        self.toast.error = RuntimeError("Toast blocked")
+        self.plugin._update_loop(self.viewer)
+        self.plugin._update_loop(self.viewer)
+        self.assertTrue(self.plugin._alive)
+        self.assertFalse(self.viewer.videoPlayer.looping)
+        self.assertTrue(self.plugin._noticed)
+        self.assertEqual(len(self.toast.calls), 1)
+        self.assertEqual(self.toast.shown, [])
+        self.plugin.logger.exception.assert_called_once_with("Could not show the autoplay notice")
 
     def test_short_clip_looping_is_restored_when_disabled(self):
         player = self.viewer.videoPlayer

@@ -5,13 +5,18 @@ regular private chat, group, channel, or forum topic and let it finish. The
 plugin finds the next newer video in that chat or topic and starts it in the
 same viewer. No separate Telegram client, playlist, or manual download is needed.
 
-Version **0.1.1** adds a read-only internal storage row to the plugin settings.
-Version **0.1.0** was the first confirmed working release. The user confirmed
+Version **0.1.2** adds a brief toast when autoplay first applies in an open
+viewer. It shows once per viewing session, not for each video. Version
+**0.1.1** added the read-only internal storage row. Version **0.1.0** was the
+first confirmed working release. The user confirmed
 continuous playback on a Samsung Galaxy Tab A9 SM-X115 with AyuGram 20261104
 and exteraGram 13.1.1 (72379). ADB verification on the same tablet showed
 **Internal storage** matching `adb df -k /data` for the `/data` partition.
-Other builds and the full device checklist below are not yet verified. Local
-tests use SDK and Java stand-ins.
+The user also confirmed the 0.1.2 toast on the same tablet: it appeared above
+the fullscreen player on first open, did not appear on an automatic advance,
+and appeared again after closing and reopening the viewer. Other builds and
+the full device checklist below are not yet verified. Local tests use SDK and
+Java stand-ins.
 
 ## Install from the catalog
 
@@ -51,6 +56,12 @@ through their normal plugin-file installation flow. No ADB is required.
   messages. Other regular private chats and groups are supported.
 - Short clips stop looping while autoplay is enabled. Disabling or unloading
   the plugin restores the player's previous looping setting.
+- The first supported video in a viewing session shows a native Android toast:
+  **Continuous video playback is enabled**. It shows once per open viewer.
+  Advancing videos, loading history, and cancelling a pending request do not
+  repeat it. Closing the viewer resets it for the next session. If showing
+  the toast raises an error, the plugin writes the error to its log and
+  playback continues unchanged.
 - The plugin changes videos inside the existing viewer. It does not close the
   viewer or request a different orientation. Fullscreen continuity still needs
   testing on the tablet. Gallery counters can be approximate after the plugin
@@ -120,6 +131,10 @@ On the Samsung Galaxy Tab A9 SM-X115:
    `adb df -k /data` at about the same time. Android Settings may show a larger
    marketed capacity because it includes system and reserved space. Reopen the
    settings to refresh the snapshot.
+9. Open a supported video and check that the autoplay notice appears once.
+   Advance through several videos, including one loaded through history, and
+   confirm the notice does not repeat. Close and reopen the viewer and confirm
+   it appears again for the new session.
 
 To copy diagnostics without ADB:
 
