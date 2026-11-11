@@ -1,6 +1,24 @@
 {
   "schema": 1,
   "name": "Channel video autoplay",
-  "description": "Channel video autoplay plugin under development.",
-  "plugins": []
+  "description": "Experimental AyuGram channel video autoplay plugin.",
+  "homepage": "https://github.com/edwrdc/telegram-autoplay",
+  "plugins": [
+    {
+      "id": "channel_video_autoplay",
+      "name": "Channel video autoplay",
+      "description": "Experimental continuous channel video playback, oldest to newest.",
+      "author": "https://github.com/edwrdc",
+      "version": "0.1.0",
+      "sdk_version": ">=1.4.5.3",
+      "category": [
+        "chats",
+        "tools"
+      ],
+      "file": "plugins/channel_video_autoplay.plugin",
+      "sha256": "bebf97d5dc33abd1dca26a1520974dd17337fd387fb61790fc48afb04f7955be",
+      "size": 13706,
+      "updated_at": "2026-11-11T14:40:31Z"
+    }
+  ]
 }
