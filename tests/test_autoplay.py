@@ -93,21 +93,23 @@ def module(**attrs):
 
 
 sdk_modules = {
+    "android.net": module(Uri=Mock(spec=["getClass"])),
     "android_utils": module(run_on_ui_thread=Mock()),
     "base_plugin": module(BasePlugin=BasePlugin, MethodHook=object),
     "client_utils": module(send_request=Mock()),
-    "hook_utils": module(find_class=Mock(), get_private_field=getattr,
+    "hook_utils": module(get_private_field=getattr,
                          set_private_field=lambda obj, name, value: setattr(obj, name, value) or True),
     "java.lang": module(Boolean=JavaBoolean, Integer=JavaInteger),
     "org.telegram.messenger": module(
         FileLoader=Mock(PRIORITY_NORMAL=1), MediaDataController=NS(MEDIA_PHOTOVIDEO=0),
+        MediaController=NS(SavedFilterState=Mock(spec=["getClass"])),
         MessageObject=Message, MessagesController=Mock(), UserConfig=NS(selectedAccount=1),
     ),
     "org.telegram.tgnet": module(
         ConnectionsManager=Mock(),
         TLRPC=NS(TL_messageMediaDocument=DocumentMedia, TL_messages_getHistory=NS),
     ),
-    "org.telegram.ui": module(PhotoViewer=Mock()),
+    "org.telegram.ui": module(PhotoViewer=Mock(spec=["getClass", "hasInstance", "getInstance"])),
     "ui.settings": module(Switch=lambda **kwargs: kwargs),
 }
 with patch.dict("sys.modules", sdk_modules):
@@ -139,8 +141,8 @@ class AutoplayTests(unittest.TestCase):
         self.viewer_class = Mock(spec=["getDeclaredField", "getDeclaredMethod"])
         self.photo_viewer = sdk_modules["org.telegram.ui"].PhotoViewer
         self.photo_viewer.reset_mock()
+        self.photo_viewer.getClass.return_value = self.viewer_class
         self.photo_viewer.hasInstance.return_value = False
-        sdk_modules["hook_utils"].find_class.return_value = self.viewer_class
         self.plugin = Plugin()
         self.plugin.on_plugin_load()
         self.run_queued(0)
@@ -201,6 +203,20 @@ class AutoplayTests(unittest.TestCase):
         self.assertEqual(account, 1)
         self.assertEqual((req.offset_id, req.add_offset, req.limit, req.min_id), (11, -100, 100, 0))
         self.api.MessagesController.getInstance.return_value.getInputPeer.assert_called_with(-123)
+
+    def test_reflection_uses_java_classes_not_chaquopy_wrappers(self):
+        self.assertTrue(self.plugin._alive)
+        self.assertIs(self.plugin._viewer_class, self.viewer_class)
+        self.photo_viewer.getClass.assert_called_once_with()
+        self.viewer_class.getDeclaredField.assert_any_call("currentMessageObject")
+        self.viewer_class.getDeclaredMethod.assert_any_call(
+            "preparePlayer", sdk_modules["android.net"].Uri.getClass.return_value,
+            JavaBoolean.TYPE, JavaBoolean.TYPE,
+            self.api.MediaController.SavedFilterState.getClass.return_value,
+        )
+        self.plugin.hook_all_methods.assert_called_once_with(
+            self.viewer_class, "closePhoto", unittest.mock.ANY,
+        )
 
     def test_skips_entire_nonvideo_pages(self):
         self.begin()

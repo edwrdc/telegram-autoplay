@@ -1,10 +1,12 @@
+from android.net import Uri
 from android_utils import run_on_ui_thread
 from base_plugin import BasePlugin, MethodHook
 from client_utils import send_request
-from hook_utils import find_class, get_private_field, set_private_field
+from hook_utils import get_private_field, set_private_field
 from java.lang import Boolean, Integer
 from org.telegram.messenger import (
-    FileLoader, MediaDataController, MessageObject, MessagesController, UserConfig,
+    FileLoader, MediaController, MediaDataController, MessageObject,
+    MessagesController, UserConfig,
 )
 from org.telegram.tgnet import ConnectionsManager, TLRPC
 from org.telegram.ui import PhotoViewer
@@ -14,7 +16,7 @@ __id__ = "channel_video_autoplay"
 __name__ = "Channel video autoplay"
 __description__ = "Experimental continuous channel video playback, oldest to newest."
 __author__ = "https://github.com/edwrdc"
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __sdk_version__ = ">=1.4.5.3"
 __category__ = ["chats", "tools"]
 
@@ -59,7 +61,7 @@ class ChannelVideoAutoplayPlugin(BasePlugin):
         self._request = None
         self._loop = None
         self._unhooks = []
-        self._viewer_class = find_class("org.telegram.ui.PhotoViewer")
+        self._viewer_class = PhotoViewer.getClass()
         try:
             # shortcut: private viewer APIs, recheck against source when AyuGram changes them.
             for name in (
@@ -74,9 +76,9 @@ class ChannelVideoAutoplayPlugin(BasePlugin):
             self._action = self._method("onActionClick", Boolean.TYPE)
             state = self._method("updatePlayerState", Boolean.TYPE, Integer.TYPE)
             prepare = self._method(
-                "preparePlayer", find_class("android.net.Uri"), Boolean.TYPE,
+                "preparePlayer", Uri.getClass(), Boolean.TYPE,
                 Boolean.TYPE,
-                find_class("org.telegram.messenger.MediaController$SavedFilterState"),
+                MediaController.SavedFilterState.getClass(),
             )
             for method, handler in (
                 (state, PlaybackHook(self)), (prepare, PreparedHook(self)),
@@ -92,7 +94,7 @@ class ChannelVideoAutoplayPlugin(BasePlugin):
             self._unhooks.extend(leave)
             self._alive = True
             run_on_ui_thread(self._refresh)
-            self.logger.info("Channel autoplay 0.1.0 loaded")
+            self.logger.info(f"Channel autoplay {__version__} loaded")
         except Exception:
             self.logger.exception("Unsupported viewer or SDK; autoplay not loaded")
             self.on_plugin_unload()
