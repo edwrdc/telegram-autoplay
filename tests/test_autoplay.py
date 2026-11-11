@@ -120,8 +120,7 @@ sdk_modules = {
     "android_utils": module(run_on_ui_thread=Mock(), copy_to_clipboard=Mock()),
     "base_plugin": module(BasePlugin=BasePlugin, MethodHook=object),
     "client_utils": module(send_request=Mock()),
-    "hook_utils": module(get_private_field=getattr,
-                         set_private_field=lambda obj, name, value: setattr(obj, name, value) or True),
+    "hook_utils": module(get_private_field=getattr),
     "java.lang": module(Boolean=JavaBoolean, Integer=JavaInteger),
     "org.telegram.messenger": module(
         FileLoader=Mock(PRIORITY_NORMAL=1), MediaDataController=NS(MEDIA_PHOTOVIDEO=0),
@@ -162,6 +161,10 @@ class AutoplayTests(unittest.TestCase):
         self.connections = sdk_modules["org.telegram.tgnet"].ConnectionsManager
         self.connections.reset_mock()
         self.viewer_class = Mock(spec=["getDeclaredField", "getDeclaredMethod"])
+        self.viewer_class.getDeclaredField.side_effect = lambda name: NS(
+            setAccessible=Mock(),
+            setInt=Mock(side_effect=lambda obj, value: setattr(obj, name, value)),
+        )
         self.photo_viewer = sdk_modules["org.telegram.ui"].PhotoViewer
         self.photo_viewer.reset_mock()
         self.photo_viewer.getClass.return_value = self.viewer_class
@@ -617,6 +620,28 @@ class AutoplayTests(unittest.TestCase):
         self.api.FileLoader.getInstance.return_value.loadFile.assert_called_once_with(
             message.getDocument(), message, 1, 0,
         )
+
+    def test_integer_field_writes_use_typed_reflection(self):
+        for name, value in (("sharedMediaType", 0), ("currentIndex", 2)):
+            with self.subTest(field=name):
+                field = Mock()
+                field.setInt.side_effect = lambda obj, number: setattr(obj, name, number)
+                self.viewer_class.getDeclaredField.side_effect = None
+                self.viewer_class.getDeclaredField.return_value = field
+                setattr(self.viewer, name, -1)
+                self.plugin._set(self.viewer, name, value)
+                self.viewer_class.getDeclaredField.assert_called_with(name)
+                field.setAccessible.assert_called_once_with(True)
+                field.setInt.assert_called_once_with(self.viewer, value)
+                self.assertEqual(getattr(self.viewer, name), value)
+
+    def test_integer_field_write_preserves_native_errors(self):
+        field = Mock()
+        field.setInt.side_effect = RuntimeError("Native field write failed")
+        self.viewer_class.getDeclaredField.side_effect = None
+        self.viewer_class.getDeclaredField.return_value = field
+        with self.assertRaisesRegex(RuntimeError, "Native field write failed"):
+            self.plugin._set(self.viewer, "sharedMediaType", 0)
 
     def test_failed_viewer_transition_stops_without_starting_wrong_video(self):
         self.plugin._index.invoke.side_effect = None

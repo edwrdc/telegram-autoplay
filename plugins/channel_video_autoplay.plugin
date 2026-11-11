@@ -3,7 +3,7 @@ from collections import deque
 from android_utils import copy_to_clipboard, run_on_ui_thread
 from base_plugin import BasePlugin, MethodHook
 from client_utils import send_request
-from hook_utils import get_private_field, set_private_field
+from hook_utils import get_private_field
 from java.lang import Boolean, Integer
 from org.telegram.messenger import (
     DialogObject, FileLoader, MediaDataController, MessageObject,
@@ -17,7 +17,7 @@ __id__ = "channel_video_autoplay"
 __name__ = "Channel video autoplay"
 __description__ = "Experimental continuous videos in chats, channels, and forum topics, oldest to newest."
 __author__ = "https://github.com/edwrdc"
-__version__ = "0.2.2"
+__version__ = "0.2.3"
 __sdk_version__ = ">=1.4.5.3"
 __category__ = ["chats", "tools"]
 
@@ -335,8 +335,9 @@ class ChannelVideoAutoplayPlugin(BasePlugin):
         self.logger.info("Autoplay selected the next video in the current chat or topic")
 
     def _set(self, viewer, name, value):
-        if not set_private_field(viewer, name, value):
-            raise RuntimeError(f"Cannot set PhotoViewer.{name}")
+        field = self._viewer_class.getDeclaredField(name)
+        field.setAccessible(True)
+        field.setInt(viewer, value)
 
     def _timeout(self, pending, request_id):
         if (self._pending is pending
