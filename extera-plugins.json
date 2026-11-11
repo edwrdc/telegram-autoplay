@@ -9,16 +9,16 @@
       "name": "Channel video autoplay",
       "description": "Experimental continuous videos in chats, channels, and forum topics, oldest to newest.",
       "author": "https://github.com/edwrdc",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "sdk_version": ">=1.4.5.3",
       "category": [
         "chats",
         "tools"
       ],
       "file": "plugins/channel_video_autoplay.plugin",
-      "sha256": "16e9a6d551294157d5323c69da8fc85878402a1da3bddcfacf2fa224f3c91776",
-      "size": 16326,
-      "updated_at": "2026-11-11T15:22:52Z"
+      "sha256": "eb9d1670982ed17c4a06c99379210d30ceb5f148b4fd0ca5e37746e7b8e0dcba",
+      "size": 16394,
+      "updated_at": "2026-11-11T15:28:10Z"
     }
   ]
 }

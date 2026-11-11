@@ -17,7 +17,7 @@ __id__ = "channel_video_autoplay"
 __name__ = "Channel video autoplay"
 __description__ = "Experimental continuous videos in chats, channels, and forum topics, oldest to newest."
 __author__ = "https://github.com/edwrdc"
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 __sdk_version__ = ">=1.4.5.3"
 __category__ = ["chats", "tools"]
 
@@ -208,7 +208,7 @@ class ChannelVideoAutoplayPlugin(BasePlugin):
             "account": message.currentAccount, "dialog": message.getDialogId(),
             "id": message.getId(), "guid": get_private_field(viewer, "classGuid"),
             "topic": (get_private_field(viewer, "topicId")
-                      or MessageObject.getTopicId(message.messageOwner, False)),
+                      or MessageObject.getTopicId(message.currentAccount, message.messageOwner, False)),
         }
         self._pending = pending
         # A positive delay lets the native end handler finish rewinding and pausing.
@@ -226,7 +226,7 @@ class ChannelVideoAutoplayPlugin(BasePlugin):
                 and message.getDialogId() == pending["dialog"]
                 and message.getId() == pending["id"]
                 and (get_private_field(viewer, "topicId")
-                     or MessageObject.getTopicId(message.messageOwner, False)) == pending["topic"]
+                     or MessageObject.getTopicId(message.currentAccount, message.messageOwner, False)) == pending["topic"]
                 and not pending["player"].isPlaying())
 
     def _fetch(self, pending, cursor):
@@ -280,7 +280,7 @@ class ChannelVideoAutoplayPlugin(BasePlugin):
                 (row for row in page
                  if row.id > cursor and MessageObject.getDialogId(row) == pending["dialog"]
                  and (not pending["topic"]
-                      or MessageObject.getTopicId(row, True) == pending["topic"])),
+                      or MessageObject.getTopicId(pending["account"], row, True) == pending["topic"])),
                 key=lambda row: row.id,
             )
             for row in rows:

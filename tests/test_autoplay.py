@@ -88,7 +88,7 @@ class Message:
         return raw.dialog_id
 
     @staticmethod
-    def getTopicId(raw, sure_is_forum):
+    def getTopicId(account, raw, sure_is_forum):
         return raw.topic or (1 if sure_is_forum else 0)
 
     def getDocument(self):
@@ -308,6 +308,23 @@ class AutoplayTests(unittest.TestCase):
         self.begin()
         self.assertEqual(self.requests[0][1].msg_id, 27)
         self.reply([row(11, topic=28), row(12, topic=27)])
+        self.assertEqual(self.viewer.currentMessageObject.getId(), 12)
+
+    def test_topic_lookup_uses_account_aware_signature_for_current_and_loaded_messages(self):
+        self.api.UserConfig.selectedAccount = 2
+        self.viewer.currentAccount = 2
+        self.viewer.currentMessageObject.currentAccount = 2
+        current = self.viewer.currentMessageObject.messageOwner
+        current.topic = 27
+        following = row(12, topic=27)
+        with patch.object(Message, "getTopicId", wraps=Message.getTopicId) as lookup:
+            self.plugin._ended(self.viewer)
+            self.run_queued(1)
+            self.reply([row(11, topic=28), following])
+            lookup.assert_any_call(2, current, False)
+            lookup.assert_any_call(2, following, True)
+            self.assertTrue(all(call.args[0] == 2 for call in lookup.call_args_list))
+        self.assertTrue(self.plugin._alive)
         self.assertEqual(self.viewer.currentMessageObject.getId(), 12)
 
     def test_general_topic_keeps_unmarked_general_messages(self):

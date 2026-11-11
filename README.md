@@ -133,6 +133,8 @@ The plugin hooks `updatePlayerState(boolean, int)`, all available
 `setImages()`, and `onActionClick(boolean)` through reflection. A positive UI
 delay lets the native completion handler finish before the plugin changes videos.
 These are private APIs, not a stable SDK playback interface.
+Topic lookup uses the account-aware `MessageObject.getTopicId(account, message,
+sureIsForum)` signature exposed by exteraGram 13.1.1.
 
 ## License
 
