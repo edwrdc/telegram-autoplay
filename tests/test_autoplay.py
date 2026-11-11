@@ -242,6 +242,29 @@ class AutoplayTests(unittest.TestCase):
         self.plugin._restore_loop()
         self.assertTrue(player.looping)
 
+    def test_prepare_diagnostics_report_hook_and_loop_override(self):
+        hook = self.plugin.hook_all_methods.call_args_list[0].args[2]
+        param = Mock(thisObject=self.viewer)
+        param.hasThrowable.return_value = False
+        hook.after_hooked_method(param)
+        self.plugin.logger.info.assert_any_call("Autoplay player preparation/resume hook fired")
+        self.plugin.logger.info.assert_any_call("Autoplay loop override applied; looping=False")
+        self.assertFalse(self.viewer.videoPlayer.looping)
+
+    def test_scope_rejection_is_logged_without_channel_ids(self):
+        self.viewer.currentDialogId = 0
+        self.plugin._update_loop(self.viewer)
+        diagnostic = self.plugin.logger.info.call_args.args[0]
+        self.assertIn("scope mismatch", diagnostic)
+        self.assertIn("viewer_dialog_matches=False", diagnostic)
+        self.assertNotIn("-123", diagnostic)
+        self.assertTrue(self.viewer.videoPlayer.looping)
+
+    def test_missing_native_player_is_logged(self):
+        self.viewer.videoPlayer = None
+        self.plugin._update_loop(self.viewer)
+        self.plugin.logger.info.assert_any_call("Autoplay waiting: native video player is not attached")
+
     def test_skips_entire_nonvideo_pages(self):
         self.begin()
         self.reply([row(i, video=False) for i in range(110, 10, -1)])
@@ -439,8 +462,10 @@ class AutoplayTests(unittest.TestCase):
         param.hasThrowable.return_value = False
         hook.after_hooked_method(param)
         self.assertIsNone(self.plugin._pending)
+        self.plugin.logger.info.assert_any_call("Autoplay player state=3, play_when_ready=True")
         param.args[1] = 4
         hook.after_hooked_method(param)
+        self.plugin.logger.info.assert_any_call("Autoplay player state=4, play_when_ready=True")
         self.send.assert_not_called()
         param.setResult.assert_not_called()
         self.run_queued(1)

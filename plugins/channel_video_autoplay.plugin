@@ -15,7 +15,7 @@ __id__ = "channel_video_autoplay"
 __name__ = "Channel video autoplay"
 __description__ = "Experimental continuous channel video playback, oldest to newest."
 __author__ = "https://github.com/edwrdc"
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 __sdk_version__ = ">=1.4.5.3"
 __category__ = ["chats", "tools"]
 
@@ -25,6 +25,10 @@ class PlaybackHook(MethodHook):
         self.plugin = plugin
 
     def after_hooked_method(self, param):
+        if not param.hasThrowable() and param.args[1] in (3, 4):
+            self.plugin.logger.info(
+                f"Autoplay player state={param.args[1]}, play_when_ready={param.args[0]}"
+            )
         if not param.hasThrowable() and param.args[1] == 4:
             try:
                 self.plugin._ended(param.thisObject)
@@ -39,6 +43,7 @@ class PreparedHook(MethodHook):
     def after_hooked_method(self, param):
         if not param.hasThrowable():
             try:
+                self.plugin.logger.info("Autoplay player preparation/resume hook fired")
                 self.plugin._update_loop(param.thisObject)
             except Exception:
                 self.plugin._fail()
@@ -124,33 +129,50 @@ class ChannelVideoAutoplayPlugin(BasePlugin):
 
     def _eligible(self, viewer):
         if not self._alive or not self._enabled or not viewer.isVisible():
+            self.logger.info("Autoplay skipped: plugin inactive, toggle off, or viewer not visible")
             return False
         if (get_private_field(viewer, "inPreview")
                 or get_private_field(viewer, "currentEditMode") != 0
                 or get_private_field(viewer, "isInline")
                 or get_private_field(viewer, "switchingInlineMode")):
+            self.logger.info("Autoplay skipped: viewer is in preview, editing, or picture-in-picture mode")
             return False
         message = get_private_field(viewer, "currentMessageObject")
         if (message is None or message.scheduled or message.getId() <= 0
                 or not message.isVideo()
                 or not isinstance(message.messageOwner.media, TLRPC.TL_messageMediaDocument)):
+            self.logger.info("Autoplay skipped: message is not an ordinary direct video")
             return False
         account = get_private_field(viewer, "currentAccount")
         dialog = message.getDialogId()
         if (account != message.currentAccount or account != UserConfig.selectedAccount
                 or dialog >= 0 or dialog != get_private_field(viewer, "currentDialogId")):
+            self.logger.info(
+                "Autoplay skipped: scope mismatch; "
+                f"message_account_matches={account == message.currentAccount}, "
+                f"selected_account_matches={account == UserConfig.selectedAccount}, "
+                f"negative_dialog={dialog < 0}, "
+                f"viewer_dialog_matches={dialog == get_private_field(viewer, 'currentDialogId')}"
+            )
             return False
         chat = MessagesController.getInstance(account).getChat(-dialog)
-        return chat is not None and chat.broadcast and not chat.megagroup
+        eligible = chat is not None and chat.broadcast and not chat.megagroup
+        if not eligible:
+            self.logger.info("Autoplay skipped: chat is not a known broadcast channel")
+        return eligible
 
     def _update_loop(self, viewer):
         player = get_private_field(viewer, "videoPlayer")
-        if not self._eligible(viewer) or player is None:
+        if not self._eligible(viewer):
+            return
+        if player is None:
+            self.logger.info("Autoplay waiting: native video player is not attached")
             return
         if self._loop is None or self._loop[0] != player:
             self._restore_loop()
             self._loop = (player, player.isLooping())
         player.setLooping(False)
+        self.logger.info(f"Autoplay loop override applied; looping={player.isLooping()}")
 
     def _restore_loop(self):
         if self._loop is not None:

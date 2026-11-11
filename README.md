@@ -89,7 +89,10 @@ On the Samsung Galaxy Tab A9 SM-X115:
 6. Test an offline connection and plugin unload. Confirm that private chats,
    groups, video messages, and web players are unchanged.
 
-If it fails, copy the full traceback from AyuGram's plugin logs. Include the
+If it fails, copy the plugin logs from plugin load through the playback attempt,
+even if there is no traceback. Version 0.1.3 logs player hooks, ready and ended
+states, loop overrides, and reasons for ignoring a video. These logs do not
+include channel IDs or message content. Include any full traceback and the
 AyuGram Full version/build, SDK version, Android version, plugin version, how
 you opened the video, and whether it streamed or was cached. Do not include
 private channel content, access hashes, or account credentials.
