@@ -37,7 +37,7 @@ def build_index():
     return {
         "schema": 1,
         "name": "Channel video autoplay",
-        "description": "Experimental AyuGram video autoplay for chats, channels, and forum topics.",
+        "description": "AyuGram video autoplay for chats, channels, and forum topics.",
         "homepage": "https://github.com/edwrdc/telegram-autoplay",
         "plugins": [entry],
     }

@@ -1,24 +1,24 @@
 {
   "schema": 1,
   "name": "Channel video autoplay",
-  "description": "Experimental AyuGram video autoplay for chats, channels, and forum topics.",
+  "description": "AyuGram video autoplay for chats, channels, and forum topics.",
   "homepage": "https://github.com/edwrdc/telegram-autoplay",
   "plugins": [
     {
       "id": "channel_video_autoplay",
       "name": "Channel video autoplay",
-      "description": "Experimental continuous videos in chats, channels, and forum topics, oldest to newest.",
+      "description": "Continuous videos in chats, channels, and forum topics, oldest to newest.",
       "author": "https://github.com/edwrdc",
-      "version": "0.2.3",
+      "version": "0.3.0",
       "sdk_version": ">=1.4.5.3",
       "category": [
         "chats",
         "tools"
       ],
       "file": "plugins/channel_video_autoplay.plugin",
-      "sha256": "71ad2e31364774eee096b784daa32a040dce75751c87fb01e71126b000552569",
-      "size": 16383,
-      "updated_at": "2026-11-11T15:39:33Z"
+      "sha256": "f799863a75d2e0f83648151bed54da1312534575f0bc8951c6e45dfdc50ec553",
+      "size": 16370,
+      "updated_at": "2026-11-11T15:45:27Z"
     }
   ]
 }

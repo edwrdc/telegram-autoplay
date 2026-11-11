@@ -1,12 +1,14 @@
 # Channel video autoplay
 
-An experimental Python plugin for AyuGram Full on Android. Open a video in a
+A Python plugin for AyuGram Full on Android. Open a video in a
 regular private chat, group, channel, or forum topic and let it finish. The
 plugin finds the next newer video in that chat or topic and starts it in the
 same viewer. No separate Telegram client, playlist, or manual download is needed.
 
-Device testing is in progress. Successful autoplay is not yet confirmed. Local
-tests use SDK and Java stand-ins and do not prove native player compatibility.
+Version **0.3.0** is the first confirmed working release. The user confirmed
+continuous playback on a Samsung Galaxy Tab A9 SM-X115 with AyuGram 20261104
+and exteraGram 13.1.1 (72379). Other builds and the full device checklist below
+are not yet verified. Local tests use SDK and Java stand-ins.
 
 ## Install from the catalog
 

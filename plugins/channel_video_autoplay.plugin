@@ -15,9 +15,9 @@ from ui.settings import Switch, Text
 
 __id__ = "channel_video_autoplay"
 __name__ = "Channel video autoplay"
-__description__ = "Experimental continuous videos in chats, channels, and forum topics, oldest to newest."
+__description__ = "Continuous videos in chats, channels, and forum topics, oldest to newest."
 __author__ = "https://github.com/edwrdc"
-__version__ = "0.2.3"
+__version__ = "0.3.0"
 __sdk_version__ = ">=1.4.5.3"
 __category__ = ["chats", "tools"]
 
